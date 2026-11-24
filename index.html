@@ -6,34 +6,84 @@
 @media(max-width:680px){#app{height:100dvh;grid-template-rows:53px minmax(0,1fr)}.topbar{padding:0 9px}.realm,.save,.side,.journal{display:none}.brand .title{font-size:16px}.mark{width:32px;height:32px}.coin{margin-left:auto}.world{display:block;min-height:0}.viewport{width:100%;height:100%;min-height:0}.prompt{bottom:calc(170px + env(safe-area-inset-bottom));min-width:220px;max-width:calc(100% - 32px)}.location{top:8px;left:8px}.compass{top:8px;right:8px}.stick-control{width:clamp(104px,30vw,132px);height:clamp(104px,30vw,132px);bottom:calc(19px + env(safe-area-inset-bottom))}.joystick{width:100%;height:100%}.stick{width:42%;height:42%;left:29%;top:29%}.action-mobile{bottom:calc(150px + env(safe-area-inset-bottom));right:calc(28px + env(safe-area-inset-right));width:52px;height:52px}.prompt{bottom:calc(176px + env(safe-area-inset-bottom))}}
 @media(orientation:landscape) and (max-height:560px){#app{grid-template-rows:46px minmax(0,1fr)}.topbar{padding:0 10px}.mobile-controls{display:block}.stick-control{width:98px;height:98px;bottom:10px}.move-control{left:16px}.look-control{right:16px}.prompt{bottom:116px}.action-mobile{right:calc(130px + env(safe-area-inset-right));bottom:23px;width:48px;height:48px}}
 </style></head><body><div id="app"><header class="topbar"><div class="brand"><div class="mark"><span>⛏</span></div><div><div class="title">Stonewake</div><div class="subtitle">A life well levelled</div></div></div><div class="realm">REALM OF <b>GREYMERE</b></div><div class="spacer"></div><div class="coin">◈ <span id="coins">24</span> gp</div><div class="save" id="save-status">● SAVED</div></header><div class="world"><aside class="side"><div class="panel-title">Your skills</div><div id="skills"></div></aside><main class="viewport" id="viewport"><canvas id="scene"></canvas><div class="location">GREYMERE FRONTIER <b id="place">The Crossroads</b></div><div class="compass" id="compass">N</div><div class="toast" id="toast"></div><div class="prompt" id="prompt"><div class="prompt-name" id="prompt-name">Copper seam</div><div class="prompt-hint" id="prompt-hint"><span class="key">E</span> Mine copper</div><div class="prompt-progress"><i id="work-progress"></i></div></div><div class="mobile-controls"><div class="stick-control move-control"><span class="stick-label">MOVE</span><div class="joystick" id="joystick" aria-label="Movement joystick"><div class="stick" id="stick"></div></div></div><div class="stick-control look-control"><span class="stick-label">LOOK</span><div class="joystick" id="look-joystick" aria-label="Camera joystick"><div class="stick" id="look-stick"></div></div></div><button class="action-mobile" id="action-mobile">ACT</button></div></main><aside class="journal"><div class="panel-title">Field journal</div><div class="journal-level"><div class="level-top"><span id="focus-name">Explorer</span><span class="level-num" id="focus-level">1</span></div><div class="journal-sub" id="level-next">Begin at a station</div><div class="wide-track"><div class="wide-fill" id="focus-fill"></div></div></div><div class="panel-title">Pack <span id="inv-cap" style="float:right"></span></div><div class="inventory-grid" id="inventory"></div><div class="log"><div class="panel-title" style="margin-bottom:4px">Field notes</div><div id="log-lines"></div></div></aside></div></div>
-<script>(()=>{'use strict';
+<script type="module">import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';(()=>{'use strict';
 const SAVE='stonewake-save-v1', skills={mining:['Mining','⛏'],smithing:['Smithing','⚒'],woodcutting:['Woodcutting','♣'],fishing:['Fishing','⌁'],cooking:['Cooking','♨'],crafting:['Crafting','◇']};
 const xpFor=l=>Math.floor(100*Math.pow(Math.max(0,l-1),1.75)),levelFor=x=>{let l=1;while(l<99&&x>=xpFor(l+1))l++;return l};
 let state={coins:24,inv:{},xp:{},equipped:'bronze',running:false,progress:0,focus:'mining'};try{const d=JSON.parse(localStorage.getItem(SAVE)||'null');if(d)state={...state,...d,running:false,progress:0,inv:d.inv||d.inventory||{}}}catch(e){}for(const k in skills)state.xp[k]=state.xp[k]||0;
-const $=s=>document.querySelector(s),canvas=$('#scene'),ctx=canvas.getContext('2d'),viewport=$('#viewport');let W=0,H=0,D=1;function resize(){const r=viewport.getBoundingClientRect();D=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;canvas.width=W*D;canvas.height=H*D}new ResizeObserver(resize).observe(viewport);resize();
+const $=s=>document.querySelector(s),canvas=$('#scene'),viewport=$('#viewport');let W=0,H=0,D=1;
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene();scene.background=new THREE.Color('#a9c1b4');scene.fog=new THREE.Fog('#a9c1b4',42,105);
+const camera=new THREE.PerspectiveCamera(48,1,.1,180);let W3=0,H3=0;
+function resize(){const r=viewport.getBoundingClientRect();D=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;W3=W;H3=H;renderer.setSize(W,H,false);camera.aspect=W/H;camera.updateProjectionMatrix()}new ResizeObserver(resize).observe(viewport);resize();
 function save(){try{localStorage.setItem(SAVE,JSON.stringify(state));$('#save-status').textContent='● SAVED'}catch(e){$('#save-status').textContent='● UNSAVED'}}function count(id){return state.inv[id]||0}function add(id,n=1){state.inv[id]=(state.inv[id]||0)+n}function remove(id,n=1){if(count(id)<n)return false;state.inv[id]-=n;if(!state.inv[id])delete state.inv[id];return true}
 function log(t){const e=document.createElement('div');e.className='log-entry';e.innerHTML=t;$('#log-lines').prepend(e);while($('#log-lines').children.length>5)$('#log-lines').lastChild.remove()}let toastTimer;function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.classList.remove('show'),1900)}
 function render(){let html='';for(const [k,[name,icon]] of Object.entries(skills)){const x=state.xp[k]||0,l=levelFor(x),pct=Math.min(100,(x-xpFor(l))/(xpFor(l+1)-xpFor(l))*100);html+=`<div class="skill"><div class="skill-icon">${icon}</div><div><div class="skill-name">${name}</div><div class="skill-xp">${x.toLocaleString()} xp</div><div class="xp-track"><div class="xp-fill" style="width:${pct}%"></div></div></div><div class="skill-level">${l}</div></div>`}$('#skills').innerHTML=html;const k=state.focus,x=state.xp[k]||0,l=levelFor(x);$('#focus-name').textContent=skills[k][0]+' level';$('#focus-level').textContent=l;$('#level-next').textContent=`${x} / ${xpFor(l+1)} xp to level ${l+1}`;$('#focus-fill').style.width=`${Math.min(100,(x-xpFor(l))/(xpFor(l+1)-xpFor(l))*100)}%`;const names={copper:['🟠','Copper ore',3],tin:['⚪','Tin ore',3],iron:['🔘','Iron ore',8],coal:['⚫','Coal',10],bronze:['🟤','Bronze bar',12],logs:['🪵','Oak logs',4],fish:['🐟','River trout',8],cooked:['🍖','Grilled trout',15],gem:['💎','Raw gemstone',35]};const entries=Object.entries(state.inv).filter(([,n])=>n>0);$('#inv-cap').textContent=`${entries.length} / 24`;$('#inventory').innerHTML=Array.from({length:24},(_,i)=>{const [id,n]=entries[i]||[];if(!id)return '<div class="slot empty"></div>';return `<div class="slot" data-id="${id}" title="${names[id]?.[1]||id}">${names[id]?.[0]||'📦'}<span class="count">${n}</span></div>`}).join('');$('#inventory').querySelectorAll('.slot:not(.empty)').forEach(el=>el.onclick=()=>{const id=el.dataset.id,n=count(id),spec=names[id]||['','Item',2],v=spec[2]*n;state.coins+=v;delete state.inv[id];toast(`Sold ${n} × ${spec[1]} for ${v} gp`);log(`Sold <b>${n} ${spec[1]}</b> for ${v} gp.`);render();save()});$('#coins').textContent=state.coins}
 function gain(k,n){const old=levelFor(state.xp[k]||0);state.xp[k]=(state.xp[k]||0)+n;if(levelFor(state.xp[k])>old){toast(`${skills[k][0]} level ${levelFor(state.xp[k])}!`);log(`<b>${skills[k][0]} reached level ${levelFor(state.xp[k])}</b>.`)}render()}
-// A small locally-rendered 3D world: perspective-projected geometry, no downloaded assets.
-const player={x:0,z:0,walk:0,vx:0,vz:0,moving:false}, camera={yaw:0,pitch:0}, stations=[
+// Real Three.js low-poly 3D frontier.
+const player={x:0,z:0,walk:0,vx:0,vz:0,moving:false,facing:0}, camera3={yaw:0,pitch:0}, stations=[
  {id:'mine',x:-18,z:35,name:'Copperfall Mine',type:'mine',icon:'⛏',hint:'Mine copper & tin',color:'#756b56'},
  {id:'forge',x:18,z:32,name:'The Old Forge',type:'forge',icon:'⚒',hint:'Smelt ore & forge tools',color:'#b76f43'},
  {id:'woods',x:-26,z:-18,name:'Whispering Woods',type:'woods',icon:'♣',hint:'Chop oak logs',color:'#426f4b'},
  {id:'river',x:25,z:-22,name:'Millwheel River',type:'river',icon:'⌁',hint:'Fish & cook trout',color:'#639a9b'}];
 const props=[];let seed=7481;function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}for(let i=0;i<100;i++){const x=(rand()-.5)*100,z=(rand()-.5)*110;if(Math.abs(x)<9&&Math.abs(z)<12)continue;if(Math.hypot(x+18,z-35)<9||Math.hypot(x-18,z-32)<9||Math.hypot(x+26,z+18)<10||Math.hypot(x-25,z+22)<10)continue;props.push({x,z,kind:rand()<.56?'tree':'rock',s:.6+rand()*.9})}
-function project(x,y,z){const dx=x-player.x,dz=z-player.z,ang=camera.yaw,rx=dx*Math.cos(ang)-dz*Math.sin(ang),rz=dx*Math.sin(ang)+dz*Math.cos(ang);const depth=rz+10;if(depth<.3)return null;const f=Math.min(W,H)*.92;return {x:W*.5+rx*f/depth,y:H*.53-(y-2.1)*f/depth+f*.23/depth-camera.pitch*f*.22,scale:f/depth,depth}}
-function poly3(points,color){const p=points.map(v=>project(v[0],v[1],v[2]));if(p.some(v=>!v))return;ctx.beginPath();ctx.moveTo(p[0].x,p[0].y);for(let i=1;i<p.length;i++)ctx.lineTo(p[i].x,p[i].y);ctx.closePath();ctx.fillStyle=color;ctx.fill();ctx.strokeStyle='#1f302455';ctx.lineWidth=1;ctx.stroke()}
-function box(x,y,z,sx,sy,sz,color,light){const a=[x-sx/2,y,z-sz/2],b=[x+sx/2,y,z-sz/2],c=[x+sx/2,y,z+sz/2],d=[x-sx/2,y,z+sz/2],A=a.map((v,i)=>v+(i===1?sy:0)),B=b.map((v,i)=>v+(i===1?sy:0)),C=c.map((v,i)=>v+(i===1?sy:0)),D=d.map((v,i)=>v+(i===1?sy:0));poly3([a,b,B,A],light||color);poly3([b,c,C,B],color);poly3([c,d,D,C],shade(color));poly3([A,B,C,D],light||color)}
-function shade(c){return c==='#664b35'?'#493729':c==='#6e8c56'?'#547343':c==='#6c6558'?'#514c43':c==='#9b8054'?'#755f40':'#52665a'}
-function tree(x,z,s=1){const base=project(x,0,z);if(!base)return;const q=base.scale*s;box(x,0,z,.38*s,2.1*s,.38*s,'#664b35');for(let i=0;i<3;i++){const y=1.1*s+i*.85*s,r=(1.1-i*.22)*s;poly3([[x,y,z],[x-r,y-.2*s,z],[x,y+1.55*s,z],[x+r,y-.2*s,z]],i===0?'#426b49':'#527c50');poly3([[x,y,z-r*.45],[x-r,y-.2*s,z],[x,y+1.55*s,z],[x,y-.2*s,z+r*.45]],i===0?'#365d40':'#426b44')} }
-function drawStation(s,t){const {x,z}=s;const ground=project(x,0,z);if(!ground)return;ctx.save();ctx.globalAlpha=.35;ctx.fillStyle='#19271e';ctx.beginPath();ctx.ellipse(ground.x,ground.y,ground.scale*1.9,ground.scale*.55,0,0,Math.PI*2);ctx.fill();ctx.restore();
- if(s.type==='mine'){box(x,0,z,7,3.8,1,'#71634d');poly3([[x-4,2,z+.54],[x,5.3,z+.54],[x+4,2,z+.54]],'#493f33');poly3([[x-2.6,1.5,z+.58],[x,3.8,z+.58],[x+2.6,1.5,z+.58]],'#17201e');box(x-5,.3,z+2,1.5,1.2,1.2,'#77786b');box(x+5,.3,z+2,1.6,1.1,1.2,'#a17a4b')}
- if(s.type==='forge'){box(x,0,z,6,3.5,4,'#866c4c');poly3([[x-3,3.4,z-2],[x,5.8,z-2],[x+3,3.4,z-2]],'#5b5140');poly3([[x-3,3.4,z+2],[x,5.8,z+2],[x+3,3.4,z+2]],'#655743');box(x-3.5,0,z+2,1,3,1,'#614a36');box(x+4,0,z+1,2,.8,1.2,'#676e68');box(x-1,0,z+3.3,1.1,1.4,.8,'#55483b');poly3([[x-1.42,.42,z+3.72],[x-1,.42,z+3.72],[x-1.22,1.05,z+3.72]],'#bd7044');poly3([[x-1.17,.42,z+3.73],[x-.83,.42,z+3.73],[x-1, .82,z+3.73]],'#dfb16e')}
- if(s.type==='woods'){for(let i=0;i<5;i++)tree(x+(i-2)*2.1,z+(i%2)*2,1.1)}
- if(s.type==='river'){poly3([[x-10,0,z-2],[x+10,0,z-2],[x+12,0,z+5],[x-8,0,z+5]],'#528d91');for(let i=0;i<4;i++)box(x-7+i*4,.08,z+1,.12,.02,3,'#a6d1c0');box(x,0,z-4,8,.35,1,'#756047');for(let i=-1;i<=1;i++)box(x+i*3,.4,z-4,.18,.9,.18,'#594c39')}
- const label=project(x,6,z);if(label&&label.scale>4){ctx.fillStyle='#e7e2ca';ctx.font=`${Math.max(10,Math.min(16,label.scale*1.5))}px Georgia`;ctx.textAlign='center';ctx.shadowColor='#17221f';ctx.shadowBlur=6;ctx.fillText(s.name,label.x,label.y-8);ctx.shadowBlur=0}}
-function drawPlayer(t){const x=player.x,z=player.z,bob=player.moving?Math.sin(t*9)*.035:0;const foot=project(x,0,z);if(!foot)return;const sc=foot.scale*.75;ctx.save();ctx.translate(foot.x,foot.y);ctx.scale(sc,sc);ctx.fillStyle='#1f2c2488';ctx.beginPath();ctx.ellipse(0,0,1.3,.32,0,0,Math.PI*2);ctx.fill();ctx.translate(0,-bob*20);ctx.fillStyle='#40372e';ctx.fillRect(-.54,-1.15,.42,1.1);ctx.fillRect(.12,-1.15,.42,1.1);ctx.fillStyle='#786447';ctx.fillRect(-.72,-2.55,1.38,1.55);ctx.fillStyle='#ae8a5e';ctx.fillRect(-.48,-3.3,.98,.85);ctx.fillStyle='#544a38';ctx.fillRect(-.64,-3.48,1.2,.3);ctx.fillStyle='#d2b779';ctx.fillRect(-.58,-3.68,.78,.23);ctx.restore();}
+/* Three.js world construction replaces canvas projection. */
+const mat=(c,r=.5)=>new THREE.MeshStandardMaterial({color:c,roughness:r,flatShading:true});
+const addMesh=(geo,material,x=0,y=0,z=0)=>{const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;scene.add(m);return m};
+const box=(x,y,z,sx,sy,sz,c)=>addMesh(new THREE.BoxGeometry(sx,sy,sz),mat(c),x,y+sy/2,z);
+const ground=addMesh(new THREE.CircleGeometry(58,10),mat('#7d9271'),0,-.03,0);ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;
+const hemi=new THREE.HemisphereLight('#dce8cf','#4f5942',2.2);scene.add(hemi);
+const sun=new THREE.DirectionalLight('#fff1c8',3.1);sun.position.set(-28,42,-18);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-55;sun.shadow.camera.right=55;sun.shadow.camera.top=55;sun.shadow.camera.bottom=-55;scene.add(sun);
+// Crossroads and river
+box(0,-.01,0,5,.025,110,'#a99b76');box(0,-.005,0,110,.02,4.2,'#b0a27d');
+addMesh(new THREE.PlaneGeometry(24,9),mat('#477d82'),31,-.01,-21).rotation.x=-Math.PI/2;
+// Character group is assembled below with articulated limb pivots.
+const rig=new THREE.Group();scene.add(rig);
+
+// Build authored low-poly landmarks and forest props directly in the Three.js scene.
+function tree(x,z,s=1){
+ const g=new THREE.Group();g.position.set(x,0,z);scene.add(g);
+ const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.18*s,.28*s,2.1*s,5),mat('#664b35'));trunk.position.y=1.05*s;trunk.castShadow=true;g.add(trunk);
+ for(let i=0;i<3;i++){const crown=new THREE.Mesh(new THREE.ConeGeometry((1.22-i*.2)*s,1.9*s,5),mat(i===0?'#426b49':i===1?'#527c50':'#668958'));crown.position.set(0,(2.25+i*.82)*s,0);crown.castShadow=true;g.add(crown)}return g
+}
+function rock(x,y,z,s,c='#77796b'){const m=addMesh(new THREE.IcosahedronGeometry(s,0),mat(c),x,y+s*.55,z);m.scale.set(1.25,.78,.95);return m}
+function stationBuild(s){const {x,z,type}=s;
+ if(type==='mine'){
+  box(x,0,z,8,2.9,1.1,'#71634d');box(x-3.15,0,z+.45,.7,3.8,.7,'#594936');box(x+3.15,0,z+.45,.7,3.8,.7,'#594936');
+  const roof=addMesh(new THREE.ConeGeometry(4.15,2.4,4),mat('#493f33'),x,4.05,z);roof.rotation.y=Math.PI/4;roof.scale.z=.48;
+  box(x,0,z+.69,3.3,2.2,.12,'#17201e');box(x-4.8,0,z+2,1.7,1.05,1.35,'#77786b');rock(x+4.8,.05,z+1.6,1.2,'#a17a4b');
+  for(let i=0;i<3;i++)box(x-1+i,2.15,z+.83,.12,.9,.13,'#8e7958');
+ }else if(type==='forge'){
+  box(x,0,z,6,3.1,4,'#806848');const roof=addMesh(new THREE.ConeGeometry(4.6,2.5,4),mat('#5b5140'),x,4.05,z);roof.rotation.y=Math.PI/4;roof.scale.set(1,.75,.7);
+  box(x-1.6,0,z+2.15,1.05,2.65,.18,'#493b2d');box(x+2,1.3,z-1,1.2,4.4,1.2,'#706451');
+  // Faceted forge hearth with a contained ember glow, not a flat orange marker.
+  const hearth=addMesh(new THREE.IcosahedronGeometry(.72,1),mat('#633f2e'),x-1.6,.68,z+2.65);hearth.scale.set(1.25,.62,.9);
+  const ember=addMesh(new THREE.ConeGeometry(.34,.95,5),new THREE.MeshStandardMaterial({color:'#e88945',emissive:'#8e3211',emissiveIntensity:1.2,flatShading:true}),x-1.6,1.35,z+2.65);ember.scale.z=.72;
+  const anvil=addMesh(new THREE.BoxGeometry(1.3,.48,.72),mat('#626b68'),x+1,1.05,z+2.8);const horn=addMesh(new THREE.ConeGeometry(.24,.75,5),mat('#626b68'),x+1.85,1.13,z+2.8);horn.rotation.z=-Math.PI/2;
+ }else if(type==='woods'){
+  for(let i=0;i<7;i++)tree(x+((i%3)-1)*3.3,z+Math.floor(i/3)*3.2,1.25+(i%2)*.12);
+  rock(x-5,.08,z+4,1,'#766d59');
+ }else{
+  const river=addMesh(new THREE.PlaneGeometry(25,11),mat('#477d82',.24),x,0,z);river.rotation.x=-Math.PI/2;
+  for(let i=0;i<5;i++){const ripple=addMesh(new THREE.BoxGeometry(2.4,.025,.07),mat('#a6d1c0',.25),x-9+i*4,.035,z-1.4+(i%2)*2.8)}
+  // Wooden fishing landing and rails.
+  for(let i=0;i<5;i++)box(x-2+i,0,z+5.1,.92,.16,2.5,'#756047');
+  for(const xx of [x-2.7,x+2.7]){box(xx,.35,z+4,.18,.7,.18,'#594c39');box(xx,.72,z+4,.2,.16,2.2,'#806748')}
+  for(let i=0;i<4;i++)rock(x-10+i*6,.02,z+6.6,.58,'#77796b');
+ }
+}
+for(const p of props){if(p.kind==='tree')tree(p.x,p.z,p.s);else rock(p.x,.02,p.z,p.s*.65)}
+for(const s of stations)stationBuild(s);
+// Player shadow and hinged limbs for a readable, articulated walk cycle.
+const shadow=addMesh(new THREE.CircleGeometry(.82,12),new THREE.MeshBasicMaterial({color:'#283329',transparent:true,opacity:.32}),0,.015,0);shadow.rotation.x=-Math.PI/2;shadow.castShadow=false;
+const setChild=(parent,geo,material,x,y,z)=>{const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;parent.add(m);return m};
+const torso=setChild(rig,new THREE.BoxGeometry(1.05,1.45,.68),mat('#71825d'),0,2.18,0);
+const chest=setChild(rig,new THREE.BoxGeometry(1.12,.34,.72),mat('#8b7651'),0,2.58,.04);
+const head=setChild(rig,new THREE.IcosahedronGeometry(.43,1),mat('#c6a171'),0,3.25,.02);
+const hair=setChild(rig,new THREE.IcosahedronGeometry(.45,0),mat('#544333'),0,3.52,-.04);hair.scale.set(1,.42,.95);
+const leftLeg=new THREE.Group(),rightLeg=new THREE.Group();
+for(const [g,x] of [[leftLeg,-.3],[rightLeg,.3]]){rig.add(g);g.position.set(x,1.25,0);setChild(g,new THREE.BoxGeometry(.37,.95,.4),mat('#40372f'),0,-.48,0);setChild(g,new THREE.BoxGeometry(.43,.24,.62),mat('#322d27'),0,-.96,.1)}
+const leftArm=new THREE.Group(),rightArm=new THREE.Group();
+for(const [g,x] of [[leftArm,-.64],[rightArm,.64]]){rig.add(g);g.position.set(x,2.68,0);setChild(g,new THREE.BoxGeometry(.34,.92,.36),mat('#9b7951'),0,-.43,0);setChild(g,new THREE.IcosahedronGeometry(.22,0),mat('#c6a171'),0,-.93,.02)}
 let target=null,workStart=0,workDuration=2200,lastWork=0;
 function closestStation(){let best=null,dist=Infinity;for(const s of stations){const d=Math.hypot(s.x-player.x,s.z-player.z);if(d<dist){best=s;dist=d}}return dist<7?best:null}
 function stationAction(s){if(s.type==='mine'){const id=Math.random()<.48?'tin':'copper';if(Object.values(state.inv).reduce((a,b)=>a+b,0)>=60){toast('Pack is full — sell items from your journal');return}add(id);state.focus='mining';gain('mining',8);log(`Mined <b>${id} ore</b> from the seam.`);if(Math.random()<.025)add('gem')}
@@ -41,22 +91,29 @@ if(s.type==='forge'){state.focus='smithing';if(count('copper')&&count('tin')){re
 if(s.type==='woods'){if(Object.values(state.inv).reduce((a,b)=>a+b,0)>=60){toast('Pack is full — sell items from your journal');return}state.focus='woodcutting';add('logs');gain('woodcutting',10);log('Chopped <b>oak logs</b> from the grove.')}
 if(s.type==='river'){state.focus='fishing';if(count('fish')){remove('fish');add('cooked');state.focus='cooking';gain('cooking',18);log('Grilled a <b>river trout</b> over the riverside fire.')}else{add('fish');gain('fishing',12);log('Caught a <b>river trout</b> in the current.')}}render();save()}
 function interact(){const s=closestStation();if(!s){toast('Walk closer to a station');return}const now=performance.now();if(now-lastWork<workDuration)return;lastWork=now;target=s;workStart=now;workDuration=s.type==='forge'?2300:1800;state.running=true;$('#prompt-name').textContent=s.type==='mine'?'Mining the seam':s.type==='forge'?'Working at the forge':s.type==='woods'?'Chopping oak':'Fishing the river';$('#work-progress').style.width='0%'}
-function draw(now){if(!W||!H){requestAnimationFrame(draw);return}ctx.setTransform(D,0,0,D,0,0);const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#83aaa8');sky.addColorStop(.43,'#c4d2bd');sky.addColorStop(1,'#e1d7b8');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);const horizon=H*.44;ctx.fillStyle='#9aafa0';ctx.beginPath();ctx.moveTo(0,horizon+15);ctx.lineTo(W*.13,horizon-55);ctx.lineTo(W*.24,horizon-12);ctx.lineTo(W*.37,horizon-82);ctx.lineTo(W*.52,horizon-20);ctx.lineTo(W*.69,horizon-66);ctx.lineTo(W*.83,horizon-8);ctx.lineTo(W,horizon-48);ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.fill();ctx.fillStyle='#718d7e';ctx.beginPath();ctx.moveTo(0,horizon+25);for(let x=0;x<=W+40;x+=40)ctx.lineTo(x,horizon-24-Math.sin(x*.012)*23-Math.sin(x*.037)*11);ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.fill();const land=ctx.createLinearGradient(0,horizon,0,H);land.addColorStop(0,'#839878');land.addColorStop(1,'#9b9b74');ctx.fillStyle=land;ctx.fillRect(0,horizon+22,W,H-horizon);poly3([[-90,0,-12],[90,0,-12],[90,0,8],[-90,0,8]],'#839878');
- // winding earth track
- poly3([[-3,0,-80],[3,0,-80],[4,0,0],[-4,0,0]],'#a99c77');poly3([[-2,0,-80],[2,0,-80],[2.5,0,0],[-2.5,0,0]],'#b9aa84');
- // water occupies the river valley
- poly3([[15,0,-28],[43,0,-28],[47,0,-12],[19,0,-12]],'#518b8f');
- const items=[];for(const p of props)items.push({depth:(project(p.x,0,p.z)?.depth)||Infinity,draw:()=>p.kind==='tree'?tree(p.x,p.z,p.s):(()=>{const q=project(p.x,0,p.z);if(q&&q.scale>1){ctx.fillStyle='#747467';ctx.beginPath();ctx.ellipse(q.x,q.y-q.scale*.25,q.scale*.65,q.scale*.42,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#969381';ctx.beginPath();ctx.ellipse(q.x-q.scale*.2,q.y-q.scale*.4,q.scale*.26,q.scale*.19,0,0,Math.PI*2);ctx.fill()}})()});for(const s of stations)items.push({depth:(project(s.x,0,s.z)?.depth)||Infinity,draw:()=>drawStation(s,now/1000)});items.sort((a,b)=>b.depth-a.depth);for(const it of items)it.draw();drawPlayer(now/1000);
- const s=closestStation();const prompt=$('#prompt');if(s){const labels={mine:'Mine copper or tin',forge:'Smelt ore · forge tools',woods:'Chop oak logs',river:count('fish')?'Cook trout':'Catch river trout'};$('#prompt-name').textContent=s.name;$('#prompt-hint').innerHTML=`<span class="key">E</span> ${labels[s.type]}`;prompt.classList.add('show')}else prompt.classList.remove('show');if(state.running){const p=Math.min(1,(now-workStart)/workDuration);$('#work-progress').style.width=`${p*100}%`;if(p>=1){state.running=false;stationAction(target)}}requestAnimationFrame(draw)}requestAnimationFrame(draw);
-const keys=new Set();window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();keys.add(k);if(k==='e'||k===' ')interact()});window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));window.addEventListener('blur',()=>keys.clear());
+
+function draw(now){
+ const t=now/1000;const moving=player.moving;
+ rig.position.set(player.x,0,player.z);shadow.position.set(player.x,.018,player.z);
+ if(moving){player.facing+=(Math.atan2(player.vx,player.vz)-player.facing)*(1-Math.exp(-12*Math.min(.05,1/60)))}rig.rotation.y=player.facing;
+ const stride=moving?Math.sin(t*9.5)*.55:0;leftLeg.rotation.x=stride;rightLeg.rotation.x=-stride;leftArm.rotation.x=-stride*.72;rightArm.rotation.x=stride*.72;rig.position.y=moving?Math.abs(Math.sin(t*9.5))*.035:0;
+ const dist=10.5,cp=Math.cos(camera3.yaw),sp=Math.sin(camera3.yaw);
+ camera.position.set(player.x-sp*dist,5.15-camera3.pitch*2.7,player.z-cp*dist);
+ camera.lookAt(player.x+sp*2,2.35+camera3.pitch*3.1,player.z+cp*2);
+ renderer.render(scene,camera);
+ const s=closestStation(),prompt=$('#prompt');if(s){const labels={mine:'Mine copper or tin',forge:'Smelt ore · forge tools',woods:'Chop oak logs',river:count('fish')?'Cook trout':'Catch river trout'};$('#prompt-name').textContent=s.name;$('#prompt-hint').innerHTML=`<span class="key">E</span> ${labels[s.type]}`;prompt.classList.add('show')}else prompt.classList.remove('show');
+ if(state.running){const p=Math.min(1,(now-workStart)/workDuration);$('#work-progress').style.width=`${p*100}%`;if(p>=1){state.running=false;stationAction(target)}}
+ requestAnimationFrame(draw)
+}requestAnimationFrame(draw);
+ const keys=new Set();window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();keys.add(k);if(k==='e'||k===' ')interact()});window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));window.addEventListener('blur',()=>keys.clear());
 let joyX=0,joyY=0,lookX=0,lookY=0,movePointer=null,lookPointer=null;
 function setupJoystick(base,knob,setInput,releaseInput){if(!base)return;const update=e=>{const r=base.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,dx=e.clientX-cx,dy=e.clientY-cy,max=r.width*.34,m=Math.min(max,Math.hypot(dx,dy)),a=Math.atan2(dy,dx),nx=Math.cos(a)*m/max,ny=Math.sin(a)*m/max;setInput(nx,ny);knob.style.transform=`translate(${nx*r.width*.29}px,${ny*r.height*.29}px)`};base.addEventListener('pointerdown',e=>{e.preventDefault();base.setPointerCapture(e.pointerId);if(base.id==='joystick')movePointer=e.pointerId;else lookPointer=e.pointerId;update(e)});base.addEventListener('pointermove',e=>{const active=base.id==='joystick'?movePointer===e.pointerId:lookPointer===e.pointerId;if(active)update(e)});const release=e=>{e.preventEvent?.();if(base.id==='joystick'&&movePointer===e.pointerId){movePointer=null}else if(base.id==='look-joystick'&&lookPointer===e.pointerId){lookPointer=null}else return;releaseInput();knob.style.transform=''};base.addEventListener('pointerup',release);base.addEventListener('pointercancel',release);base.addEventListener('lostpointercapture',release)}
 setupJoystick($('#joystick'),$('#stick'),(x,y)=>{joyX=x;joyY=y},()=>{joyX=joyY=0});
 setupJoystick($('#look-joystick'),$('#look-stick'),(x,y)=>{lookX=x;lookY=y},()=>{lookX=lookY=0});
 $('#action-mobile').addEventListener('click',interact);
 player.moving=false;let last=performance.now();function moveLoop(now){const dt=Math.min(.18,(now-last)/1000);last=now;
- camera.yaw+=lookX*dt*1.65;camera.pitch=Math.max(-.7,Math.min(.55,camera.pitch-lookY*dt*.72));
- let f=(keys.has('w')||keys.has('arrowup')?1:0)-(keys.has('s')||keys.has('arrowdown')?1:0),side=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);if(Math.hypot(joyX,joyY)>.08){f=-joyY;side=joyX}const mag=Math.hypot(f,side);if(mag>1){f/=mag;side/=mag}const ang=camera.yaw,worldX=side*Math.cos(ang)+f*Math.sin(ang),worldZ=-side*Math.sin(ang)+f*Math.cos(ang);const speed=7.5,response=1-Math.exp(-(mag>.08?13:9)*dt);player.vx+=(worldX*speed-player.vx)*response;player.vz+=(worldZ*speed-player.vz)*response;player.x=Math.max(-48,Math.min(48,player.x+player.vx*dt));player.z=Math.max(-48,Math.min(48,player.z+player.vz*dt));player.moving=Math.hypot(player.vx,player.vz)>.35;requestAnimationFrame(moveLoop)}requestAnimationFrame(moveLoop);
+ camera3.yaw+=lookX*dt*1.65;camera3.pitch=Math.max(-.7,Math.min(.55,camera3.pitch-lookY*dt*.72));
+ let f=(keys.has('w')||keys.has('arrowup')?1:0)-(keys.has('s')||keys.has('arrowdown')?1:0),side=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0);if(Math.hypot(joyX,joyY)>.08){f=-joyY;side=joyX}const mag=Math.hypot(f,side);if(mag>1){f/=mag;side/=mag}const ang=camera3.yaw,worldX=side*Math.cos(ang)+f*Math.sin(ang),worldZ=-side*Math.sin(ang)+f*Math.cos(ang);const speed=7.5,response=1-Math.exp(-(mag>.08?13:9)*dt);player.vx+=(worldX*speed-player.vx)*response;player.vz+=(worldZ*speed-player.vz)*response;player.x=Math.max(-48,Math.min(48,player.x+player.vx*dt));player.z=Math.max(-48,Math.min(48,player.z+player.vz*dt));player.moving=Math.hypot(player.vx,player.vz)>.35;requestAnimationFrame(moveLoop)}requestAnimationFrame(moveLoop);
 render();log('<b>Welcome to Greymere.</b> Explore the frontier on foot.');log('WASD / arrows to walk · E or ACT to work.');setInterval(save,20000);window.addEventListener('beforeunload',save);
 })();
 </script></body></html>
